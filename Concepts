@@ -1,0 +1,335 @@
+import sys # system functions (ie. exiting the program)
+import os # operating system functions (ie. path building on Windows vs. MacOs)
+import time # for time operations
+import uuid # for generating unique file names
+import math # math functions
+
+from IPython.display import display as ipydisplay, Image, clear_output, HTML # for interacting with the notebook better
+
+import numpy as np # matrix operations (ie. difference between two matricies)
+import cv2 # (OpenCV) computer vision functions (ie. tracking)
+(major_ver, minor_ver, subminor_ver) = (cv2.__version__).split('.')
+print('OpenCV Version: {}.{}.{}'.format(major_ver, minor_ver, subminor_ver))
+
+import matplotlib.pyplot as plt # (optional) for plotting and showing images inline
+%matplotlib inline
+
+import keras # high level api to tensorflow (or theano, CNTK, etc.) and useful image preprocessing
+from keras import backend as K
+from keras.preprocessing.image import ImageDataGenerator, load_img, img_to_array
+from keras.models import Sequential, load_model, model_from_json
+from keras.layers import Dense, Dropout, Activation, Flatten
+from keras.layers import Conv2D, MaxPooling2D
+print('Keras image data format: {}'.format(K.image_data_format()))
+
+IMAGES_FOLDER = os.path.join('images') # images for visuals
+
+MODEL_PATH = os.path.join('model')
+MODEL_FILE = os.path.join(MODEL_PATH, 'hand_model_gray.hdf5') # path to model weights and architechture file
+MODEL_HISTORY = os.path.join(MODEL_PATH, 'model_history.txt') # path to model training history
+
+def bgrtorgb(image):
+    return cv2.cvtColor(image.copy(), cv2.COLOR_BGR2RGB)
+Jupyter Notebook image display
+def show_image(name):
+    """
+    Showing image files.
+    """
+    fname = os.path.join(IMAGES_FOLDER, name)
+    ipydisplay(Image(fname))
+def plot_image(image, figsize=(8,8), recolour=False):
+    """
+    Plotting image matricies.
+    """
+    if recolour: image = bgrtorgb(image)
+    plt.figure(figsize=figsize)
+    if image.shape[-1] == 3:
+        plt.imshow(image)
+    elif image.shape[-1] == 1 or len(image.shape) == 2:
+        plt.imshow(image, cmap='gray')
+    else:
+        raise Exception("Image has invalid shape.")
+OpenCV
+Take webcam shot
+video = cv2.VideoCapture(0)
+
+while True:
+    # Read a new frame
+    success, frame = video.read()
+    if not success:
+        # Frame not successfully read from video capture
+        break
+        
+    # Display result
+    cv2.imshow("frame", frame)
+    
+    k = cv2.waitKey(1) & 0xff
+    if k == 27:# escape pressed 
+        break
+    elif k == 115: # s pressed
+        fname = input("File name")
+        cv2.imwrite(os.path.join(IMAGES_FOLDER, '{}.jpg'.format(fname)), frame)
+        
+cv2.destroyAllWindows()
+video.release()
+Reading video from webcam
+Create an instance of a video capture object. Read and display frame by frame in a while loop until escape is pressed.
+
+video = cv2.VideoCapture(0)
+
+while True:
+    # Read a new frame
+    success, frame = video.read()
+    if not success:
+        # Frame not successfully read from video capture
+        break
+        
+    # Display result
+    cv2.imshow("frame", frame)
+    
+    k = cv2.waitKey(1) & 0xff
+    if k == 27: break # ESC pressed
+        
+cv2.destroyAllWindows()
+video.release()
+Clean windows and release video capture
+This is useful for when a video capture loop errors out, but your webcam is still stuck capturing and windows are left open.
+
+cv2.destroyAllWindows()
+video.release()
+Getting key presses
+It's sometimes useful to get key presses to alter the algorithms being run, stat certain processes, run functions, etc.
+
+The video window must be selected to register a key press. k, in this case, will equal 255 if nothing is pressed.
+
+while True:
+    # Placeholder frame to show window
+    window = np.zeros((300,300))
+    
+    # Display result
+    cv2.imshow("frame", window)
+    
+    k = cv2.waitKey(1) & 0xff
+    if k != 255: # A key is pressed
+        print(k)
+        
+    if k == 27:# escape pressed 
+        break
+        
+cv2.destroyAllWindows()
+video.release()
+
+
+#Computer Vision Concepts
+
+earth_fname = os.path.join(IMAGES_FOLDER, 'earth.jpg')
+earth_img = cv2.imread(earth_fname)
+# comment out the line below to see the colour difference
+earth_img = cv2.cvtColor(earth_img, cv2.COLOR_BGR2RGB)
+plt.imshow(earth_img)
+
+print('Image Shape: ', earth_img.shape, '\n\n')
+print('Image Matrix: \n', earth_img, '\n\n')
+print('Image Plotted:')
+
+
+#Background Subtraction Techniques
+
+bg_img = cv2.imread(os.path.join(IMAGES_FOLDER, 'bg.jpg'))
+current_frame_img = cv2.imread(os.path.join(IMAGES_FOLDER, 'current_frame.jpg'))
+
+diff = cv2.absdiff(bg_img, current_frame_img)
+mask = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+th, mask_thresh = cv2.threshold(mask, 10, 255, cv2.THRESH_BINARY)
+mask_blur = cv2.GaussianBlur(mask_thresh, (3, 3), 10)
+mask_erosion = cv2.erode(mask_blur, np.ones((5,5), dtype=np.uint8), iterations=1)
+
+mask_indexes = mask_erosion > 0
+
+foreground = np.zeros_like(current_frame_img, dtype=np.uint8)
+for i, row in enumerate(mask_indexes):
+    foreground[i, row] = current_frame_img[i, row]
+
+plot_image(bg_img, recolour=True)
+plot_image(current_frame_img, recolour=True)
+plot_image(diff, recolour=True)
+plot_image(mask)
+plot_image(mask_erosion)
+plot_image(foreground, recolour=True)
+
+
+#Using motion based background subtraction algorithms (mainly video)
+
+ERODE = True
+
+fgbg = cv2.createBackgroundSubtractorMOG2()
+# fgbg = cv2.createBackgroundSubtractorKNN()
+
+video = cv2.VideoCapture(os.path.join(IMAGES_FOLDER, 'bg_subtract_movement.mp4'))
+
+while True:
+    time.sleep(0.025)
+    
+    timer = cv2.getTickCount()
+    
+    # Read a new frame
+    success, frame = video.read()
+    if not success:
+        # Frame not successfully read from video capture
+        break
+        
+    fgmask = fgbg.apply(frame)
+    
+    # Apply erosion to clean up noise
+    if ERODE:
+        fgmask = cv2.erode(fgmask, np.ones((3,3), dtype=np.uint8), iterations=1)
+    
+    # Calculate Frames per second (FPS)
+    fps = cv2.getTickFrequency() / (cv2.getTickCount() - timer)
+    # Display FPS on frame
+    cv2.putText(fgmask, "FPS : " + str(int(fps)), (100, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2)
+ 
+    # Display result
+    cv2.imshow("fgmask", fgmask)
+    
+    k = cv2.waitKey(1) & 0xff
+    if k == 27: break # ESC pressed
+        
+cv2.destroyAllWindows()
+video.release()
+
+#Finding contours and sorting contours
+Here we sort the contours by area and get the 4 largest contours, but we can also find all contours that are greater than a certain size. We can also fill contours by passing -1 to the last parameter of cv2.drawContours().
+
+You can also use contours for masking similair to how it was done above for background subtraction.
+
+OUTLINE = True
+LRG_ONLY = True
+
+# window to hold the trackbar
+img = np.zeros((300,512,3), np.uint8)
+cv2.namedWindow('image')
+
+# create trackbar
+cv2.createTrackbar('Thresh', 'image', 0, 255, lambda x: None)
+
+earth_fname = os.path.join(IMAGES_FOLDER, 'earth.jpg')
+earth_img = cv2.imread(earth_fname)
+
+while True:
+    thresh_min = cv2.getTrackbarPos('Thresh','image')
+    
+    contour_img = earth_img.copy()
+    contour_img = cv2.cvtColor(contour_img, cv2.COLOR_BGR2GRAY)
+    ret, contour_img_thresh = cv2.threshold(contour_img, thresh_min, 255, 0)
+    contours, hierarchy = cv2.findContours(contour_img_thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    if LRG_ONLY:
+        cnts = [x for x in contours if cv2.contourArea(x) > 20000]
+    else:
+        cnts = sorted(contours, key = cv2.contourArea, reverse = True)[:3]
+
+    if OUTLINE:
+        # Draw only outlines
+        contour_img_display = cv2.drawContours(earth_img.copy(), cnts, -1, (238, 255, 0), 2)
+    else:
+        # Draw filled contours
+        contour_img_display = cv2.drawContours(earth_img.copy(), cnts, -1, (238, 255, 0), -1)
+
+    contour_img_display = cv2.cvtColor(contour_img_display, cv2.COLOR_BGR2RGB)
+    
+    cv2.imshow('image', contour_img_display)
+    cv2.imshow('thresh', contour_img_thresh)
+    
+    k = cv2.waitKey(1) & 0xff
+    if k == 27: break # ESC pressed
+        
+
+cv2.destroyAllWindows()    
+# plot_image(contour_img_thresh)
+# plot_image(contour_img_display, recolour=True) 
+
+Tracking
+Tracking is a very complex topic and we will simply use OpenCV's tracking algorithms to track objects. For this tutorial, we will use the Kernelized Correlation Filters (KCF) tracking as it performs well and provides built in tracking error detection.
+
+Available tracking algorithms:
+
+MIL
+BOOSTING
+MEDIANFLOW
+TLD
+KCF
+# Set up tracker.
+def setup_tracker(ttype):
+    tracker_types = ['BOOSTING', 'MIL', 'KCF', 'TLD', 'MEDIANFLOW', 'GOTURN']
+    tracker_type = tracker_types[ttype]
+
+    if tracker_type == 'BOOSTING':
+        tracker = cv2.TrackerBoosting_create()
+    if tracker_type == 'MIL':
+        tracker = cv2.TrackerMIL_create()
+    if tracker_type == 'KCF':
+        tracker = cv2.TrackerKCF_create()
+    if tracker_type == 'TLD':
+        tracker = cv2.TrackerTLD_create()
+    if tracker_type == 'MEDIANFLOW':
+        tracker = cv2.TrackerMedianFlow_create()
+    if tracker_type == 'GOTURN':
+        tracker = cv2.TrackerGOTURN_create()
+    
+    return tracker
+video = cv2.VideoCapture(os.path.join(IMAGES_FOLDER, 'moving_subject_scale.mp4'))
+# video = cv2.VideoCapture(0)
+
+# Read first frame
+success, frame = video.read()
+if not success:
+    print("first frame not read")
+    sys.exit()
+
+tracker = setup_tracker(4)
+
+# Select roi for bbox
+bbox = cv2.selectROI(frame, False)
+cv2.destroyAllWindows()
+
+# Initialize tracker with first frame and bounding box
+tracking_success = tracker.init(frame, bbox)
+
+while True:
+    time.sleep(0.02)
+    
+    timer = cv2.getTickCount()
+    
+    # Read a new frame
+    success, frame = video.read()
+    if not success:
+        # Frame not successfully read from video capture
+        break
+        
+    # Update tracker
+    tracking_success, bbox = tracker.update(frame)
+    
+    # Draw bounding box
+    if tracking_success:
+        # Tracking success
+        p1 = (int(bbox[0]), int(bbox[1]))
+        p2 = (int(bbox[0] + bbox[2]), int(bbox[1] + bbox[3]))
+        cv2.rectangle(frame, p1, p2, (255, 0, 0), 2, 1)        
+    else:
+        # Tracking failure
+        cv2.putText(frame, "Tracking failure detected", (100, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 255), 2)
+        
+    # Calculate Frames per second (FPS)
+    fps = cv2.getTickFrequency() / (cv2.getTickCount() - timer)
+    # Display FPS on frame
+    cv2.putText(frame, "FPS : " + str(int(fps)), (100, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 0, 0), 2)
+    
+    # Display result
+    cv2.imshow("frame", frame)
+    
+    k = cv2.waitKey(1) & 0xff
+    if k == 27: break # ESC pressed
+        
+cv2.destroyAllWindows()
+video.release()
